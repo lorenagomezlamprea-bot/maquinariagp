@@ -53,11 +53,24 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, setExtraDays, config 
             {operarios.map(op => <option key={op.id} value={op.id}>{op.nombre}</option>)}
         </select>
         <input type="date" value={formData.fecha} onChange={e => setFormData({...formData, fecha: e.target.value})} className="border p-2 rounded" />
-        <input type="number" placeholder="Ordinarias" value={formData.ordinarias} onChange={e => setFormData({...formData, ordinarias: Number(e.target.value)})} className="border p-2 rounded" />
-        <input type="number" placeholder="Extra Diurna" value={formData.extraDiurna} onChange={e => setFormData({...formData, extraDiurna: Number(e.target.value)})} className="border p-2 rounded" />
-        <input type="number" placeholder="Extra Nocturna" value={formData.extraNocturna} onChange={e => setFormData({...formData, extraNocturna: Number(e.target.value)})} className="border p-2 rounded" />
-        <input type="number" placeholder="Extra Dom/Fest" value={formData.extraDominical} onChange={e => setFormData({...formData, extraDominical: Number(e.target.value)})} className="border p-2 rounded" />
-        <button type="submit" className="bg-blue-600 text-white p-2 rounded">Registrar</button>
+        <div className="flex flex-col">
+            <label className="text-sm font-medium mb-1">Horas ordinarias (h)</label>
+            <input type="number" value={formData.ordinarias} onChange={e => setFormData({...formData, ordinarias: Number(e.target.value)})} className="border p-2 rounded" />
+        </div>
+        <div className="flex flex-col">
+            <label className="text-sm font-medium mb-1">Horas extra diurnas (h)</label>
+            <input type="number" value={formData.extraDiurna} onChange={e => setFormData({...formData, extraDiurna: Number(e.target.value)})} className="border p-2 rounded" />
+        </div>
+        <div className="flex flex-col">
+            <label className="text-sm font-medium mb-1">Horas extra nocturnas (h)</label>
+            <input type="number" value={formData.extraNocturna} onChange={e => setFormData({...formData, extraNocturna: Number(e.target.value)})} className="border p-2 rounded" />
+        </div>
+        <div className="flex flex-col">
+            <label className="text-sm font-medium mb-1">Horas extra dom./fest. (h)</label>
+            <input type="number" value={formData.extraDominical} onChange={e => setFormData({...formData, extraDominical: Number(e.target.value)})} className="border p-2 rounded" />
+        </div>
+        <button type="submit" className="bg-blue-600 text-white p-2 rounded md:col-span-3">Registrar</button>
+        <p className="text-xs text-gray-500 md:col-span-3">Nota: El tope legal es de 2 horas extra diarias y 12 horas extra semanales.</p>
       </form>
 
       <div className="mb-6 bg-white p-4 rounded-lg shadow">
