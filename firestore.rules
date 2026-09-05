@@ -1,0 +1,64 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidRegistroResto(data) {
+      return data.id is string && data.id.size() <= 64 &&
+             data.operarioId is string && data.operarioId.size() <= 64 &&
+             data.fecha is string && data.fecha.size() == 10 &&
+             data.tipoDia in ['Descanso entre semana', 'Domingo programado'] &&
+             data.trabajo is bool &&
+             data.horas is number;
+    }
+
+    function isValidRegistroExtra(data) {
+      return data.id is string && data.id.size() <= 64 &&
+             data.operarioId is string && data.operarioId.size() <= 64 &&
+             data.fecha is string && data.fecha.size() == 10 &&
+             data.ordinarias is number &&
+             data.extraDiurna is number &&
+             data.extraNocturna is number &&
+             data.extraDominical is number;
+    }
+
+    function isValidConfig(data) {
+      return data.topeDiasDescanso is number &&
+             data.topeHorasExtraDiarias is number &&
+             data.topeHorasExtraSemanales is number &&
+             data.horasDescansoMinimo is number &&
+             data.recargoNocturnoSimple is number &&
+             data.extraDiurnaPorc is number &&
+             data.extraNocturnaPorc is number &&
+             data.extraDominicalPorc is number &&
+             data.salariosBase is map &&
+             data.pin is string;
+    }
+
+    match /restDays/{id} {
+      allow read: if true;
+      allow create, update: if isValidId(id) && isValidRegistroResto(request.resource.data);
+      allow delete: if isValidId(id);
+    }
+
+    match /extraDays/{id} {
+      allow read: if true;
+      allow create, update: if isValidId(id) && isValidRegistroExtra(request.resource.data);
+      allow delete: if isValidId(id);
+    }
+
+    match /settings/{configId} {
+      allow read: if true;
+      allow create, update: if isValidId(configId) && isValidConfig(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

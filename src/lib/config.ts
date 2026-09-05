@@ -1,3 +1,5 @@
+import { doc, onSnapshot, setDoc, getDoc } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType } from './firebase';
 import { Configuración } from '../types';
 
 export const defaultConfig: Configuración = {
@@ -13,18 +15,43 @@ export const defaultConfig: Configuración = {
   pin: '3576'
 };
 
-export const loadConfig = (): Configuración => {
-  const saved = localStorage.getItem('appConfig');
-  if (saved) {
-    try {
-      return JSON.parse(saved);
-    } catch (e) {
-      console.error("Error parsing config", e);
+const CONFIG_DOC_PATH = 'settings/config';
+
+export const subscribeConfig = (callback: (config: Configuración) => void) => {
+  const docRef = doc(db, 'settings', 'config');
+  return onSnapshot(
+    docRef,
+    async (snapshot) => {
+      if (snapshot.exists()) {
+        callback(snapshot.data() as Configuración);
+      } else {
+        // Initialize config from localStorage or default
+        const localSaved = localStorage.getItem('appConfig');
+        let initial = defaultConfig;
+        if (localSaved) {
+          try {
+            initial = { ...defaultConfig, ...JSON.parse(localSaved) };
+          } catch (e) {
+            console.error('Error parsing local config', e);
+          }
+        }
+        await saveConfig(initial);
+        callback(initial);
+      }
+    },
+    (error) => {
+      handleFirestoreError(error, OperationType.GET, CONFIG_DOC_PATH);
     }
-  }
-  return defaultConfig;
+  );
 };
 
-export const saveConfig = (config: Configuración) => {
-  localStorage.setItem('appConfig', JSON.stringify(config));
+export const saveConfig = async (config: Configuración) => {
+  try {
+    const docRef = doc(db, 'settings', 'config');
+    await setDoc(docRef, config);
+    // Keep in sync with localStorage as offline fallback
+    localStorage.setItem('appConfig', JSON.stringify(config));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, CONFIG_DOC_PATH);
+  }
 };

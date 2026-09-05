@@ -1,0 +1,65 @@
+{
+  "entities": {
+    "RegistroResto": {
+      "title": "RegistroResto",
+      "description": "Registro de dia de descanso u operatividad",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "operarioId": { "type": "string" },
+        "fecha": { "type": "string" },
+        "tipoDia": { "type": "string", "enum": ["Descanso entre semana", "Domingo programado"] },
+        "trabajo": { "type": "boolean" },
+        "horas": { "type": "number" }
+      },
+      "required": ["id", "operarioId", "fecha", "tipoDia", "trabajo", "horas"]
+    },
+    "RegistroExtra": {
+      "title": "RegistroExtra",
+      "description": "Registro de horas extra y ordinarias",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "operarioId": { "type": "string" },
+        "fecha": { "type": "string" },
+        "ordinarias": { "type": "number" },
+        "extraDiurna": { "type": "number" },
+        "extraNocturna": { "type": "number" },
+        "extraDominical": { "type": "number" }
+      },
+      "required": ["id", "operarioId", "fecha", "ordinarias", "extraDiurna", "extraNocturna", "extraDominical"]
+    },
+    "AppConfig": {
+      "title": "AppConfig",
+      "description": "Configuracion global de la aplicacion",
+      "type": "object",
+      "properties": {
+        "topeDiasDescanso": { "type": "number" },
+        "topeHorasExtraDiarias": { "type": "number" },
+        "topeHorasExtraSemanales": { "type": "number" },
+        "horasDescansoMinimo": { "type": "number" },
+        "recargoNocturnoSimple": { "type": "number" },
+        "extraDiurnaPorc": { "type": "number" },
+        "extraNocturnaPorc": { "type": "number" },
+        "extraDominicalPorc": { "type": "number" },
+        "salariosBase": { "type": "object" },
+        "pin": { "type": "string" }
+      },
+      "required": ["topeDiasDescanso", "topeHorasExtraDiarias", "topeHorasExtraSemanales", "horasDescansoMinimo", "recargoNocturnoSimple", "extraDiurnaPorc", "extraNocturnaPorc", "extraDominicalPorc", "salariosBase", "pin"]
+    }
+  },
+  "firestore": {
+    "/restDays/{id}": {
+      "schema": "RegistroResto",
+      "description": "Coleccion de registros de descanso"
+    },
+    "/extraDays/{id}": {
+      "schema": "RegistroExtra",
+      "description": "Coleccion de registros de horas extra"
+    },
+    "/settings/{configId}": {
+      "schema": "AppConfig",
+      "description": "Configuracion del sistema"
+    }
+  }
+}

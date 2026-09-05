@@ -1,14 +1,15 @@
 import React, { useState, useMemo } from 'react';
 import { Operario, RegistroResto } from '../types';
 import { Trash2 } from 'lucide-react';
+import { saveRestDayDoc, deleteRestDayDoc } from '../lib/data';
 
 interface Props {
   operarios: Operario[];
   restDays: RegistroResto[];
-  setRestDays: (data: RegistroResto[]) => void;
+  setRestDays?: (data: RegistroResto[]) => void;
 }
 
-const RestDays: React.FC<Props> = ({ operarios, restDays, setRestDays }) => {
+const RestDays: React.FC<Props> = ({ operarios, restDays }) => {
   const [filterMonth, setFilterMonth] = useState(new Date().toISOString().slice(0, 7));
   const [formData, setFormData] = useState({
     operarioId: operarios[0]?.id || '',
@@ -31,7 +32,7 @@ const RestDays: React.FC<Props> = ({ operarios, restDays, setRestDays }) => {
     return restDays.filter(rd => rd.operarioId === operarioId && rd.fecha.startsWith(month) && rd.trabajo).length;
   };
 
-  const handleAddRecord = (confirmed = false) => {
+  const handleAddRecord = async (confirmed = false) => {
     const newRecord: RegistroResto = {
       ...formData,
       id: Date.now().toString(),
@@ -47,15 +48,23 @@ const RestDays: React.FC<Props> = ({ operarios, restDays, setRestDays }) => {
       return;
     }
 
-    setRestDays([...restDays, newRecord]);
+    try {
+      await saveRestDayDoc(newRecord);
+    } catch (e) {
+      console.error('Error guardando en Firestore:', e);
+    }
     setModalOpen(false);
     setAuthChecked(false);
     setPendingRecord(null);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm('¿Está seguro de eliminar este registro?')) {
-      setRestDays(restDays.filter(rd => rd.id !== id));
+      try {
+        await deleteRestDayDoc(id);
+      } catch (e) {
+        console.error('Error eliminando en Firestore:', e);
+      }
     }
   };
 
