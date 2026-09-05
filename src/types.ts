@@ -49,3 +49,9 @@ export interface Configuración {
   salariosBase: Record<string, number>; // operarioId -> salary
   pin: string;
 }
+
+export interface MensualState {
+  noches_acumuladas: Record<string, number>;
+  ultimo_operario_en_noche: string | null;
+  ultimo_operario_descanso_domingo: string | null;
+}

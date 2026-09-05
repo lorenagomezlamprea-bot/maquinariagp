@@ -75,17 +75,58 @@ const Rotation: React.FC<Props> = ({ operarios }) => {
     localStorage.setItem('programacion', JSON.stringify(prog));
   };
 
-  const calculateCargaNocturna = (rotacion: Record<string, Record<string, DiaProgramacion>>) => {
-    const carga: Record<string, number> = {};
-    Object.keys(rotacion).forEach(opId => {
-      let count = 0;
-      Object.values(rotacion[opId]).forEach(dia => {
-        if (dia.turno === 'Turno Noche') count++;
-        if (dia.disponibilidad !== 'Ninguna') count++;
-      });
-      carga[opId] = count;
+  const generateRotation = (currentProg: ProgramacionSemanal, mensualState: MensualState): { newProg: ProgramacionSemanal, newMensualState: MensualState } => {
+    let newMensualState = { ...mensualState };
+    const { noches_acumuladas, ultimo_operario_en_noche, ultimo_operario_descanso_domingo } = newMensualState;
+    const newRotacion: Record<string, Record<string, DiaProgramacion>> = {};
+
+    // 1. Elegir descanso domingo (Step 2)
+    const operariosIds = operarios.map(o => o.id);
+    let candidatosDomingo = operariosIds.filter(id => id !== ultimo_operario_descanso_domingo);
+    candidatosDomingo.sort((a, b) => (noches_acumuladas[b] || 0) - (noches_acumuladas[a] || 0));
+    const descDomingo = candidatosDomingo[0];
+    newMensualState.ultimo_operario_descanso_domingo = descDomingo;
+
+    // 2. Elegir otros descansos (Step 3)
+    const restoOps = operariosIds.filter(id => id !== descDomingo);
+    const descEntreSemana: Record<string, number> = {};
+    descEntreSemana[restoOps[0]] = 0; // Lunes
+    descEntreSemana[restoOps[1]] = 1; // Martes
+
+    // 3. Recorrer días (Step 4)
+    dias.forEach((d, dIndex) => {
+        const dName = d;
+        const descHoy = operariosIds.filter(id => {
+            if (dName === 'Domingo') return id === descDomingo;
+            return descEntreSemana[id] === dIndex;
+        });
+        const trabajanHoy = operariosIds.filter(id => !descHoy.includes(id));
+        
+        if (dName === 'Domingo') {
+            trabajanHoy.forEach(id => {
+                newRotacion[id] = { ...newRotacion[id], [dName]: { turno: 'Turno Día', disponibilidad: 'Ninguna' } };
+            });
+            descHoy.forEach(id => {
+                newRotacion[id] = { ...newRotacion[id], [dName]: { turno: 'Descanso', disponibilidad: 'Ninguna' } };
+            });
+        } else {
+            // ... Tie breaking logic ...
+            // Simplified for now based on previous manual simulation
+        }
     });
-    return carga;
+
+    const newProg: ProgramacionSemanal = {
+        id: Date.now().toString(),
+        fechaInicio: new Date(new Date(currentProg.fechaInicio).getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        rotacion: newRotacion,
+        cargaNocturna: { ...newMensualState.noches_acumuladas }
+    };
+    return { newProg, newMensualState };
+  };
+
+  const validateRotation = (prog: ProgramacionSemanal, mensualState: MensualState): { valid: boolean, report: string[] } => {
+    // ... Implement specification step 5 ...
+    return { valid, report };
   };
 
   const generateNext = () => {
