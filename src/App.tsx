@@ -18,13 +18,11 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('Dashboard');
   const [isAuthenticated, setIsAuthenticated] = useState(!!sessionStorage.getItem('isAuthenticated'));
   const [restDays, setRestDays] = useState<RegistroResto[]>(loadRestDays);
-  const [extraDays, setExtraDays] = useState<RegistroExtra[]>([]);
+  const [extraDays, setExtraDays] = useState<RegistroExtra[]>(loadExtraDays);
   const [config, setConfig] = useState(loadConfig);
 
   useEffect(() => {
-    // Only load data, others are lazy-loaded via useState initializer
-    const savedExtra = localStorage.getItem('extraDays');
-    if (savedExtra) setExtraDays(JSON.parse(savedExtra));
+    // Other initializations if needed
   }, []);
 
   useEffect(() => {
