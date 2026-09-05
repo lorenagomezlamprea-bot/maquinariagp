@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import Dashboard from './components/Dashboard';
 import RestDays from './components/RestDays';
 import Overtime from './components/Overtime';
-import Rotation from './components/Rotation';
 import Config from './components/Config';
 import Login from './components/Login';
 import { Operario, RegistroResto, RegistroExtra, ProgramacionSemanal } from './types';
@@ -20,25 +19,19 @@ export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(!!sessionStorage.getItem('isAuthenticated'));
   const [restDays, setRestDays] = useState<RegistroResto[]>(loadRestDays);
   const [extraDays, setExtraDays] = useState<RegistroExtra[]>([]);
-  const [rotation, setRotation] = useState<ProgramacionSemanal | null>(null);
   const [config, setConfig] = useState(loadConfig);
 
   useEffect(() => {
-    // Only load rotation, others are lazy-loaded via useState initializer
+    // Only load data, others are lazy-loaded via useState initializer
     const savedExtra = localStorage.getItem('extraDays');
     if (savedExtra) setExtraDays(JSON.parse(savedExtra));
-    const savedRotation = localStorage.getItem('programacion');
-    if (savedRotation) setRotation(JSON.parse(savedRotation));
   }, []);
 
   useEffect(() => {
     // Only save restDays/extraDays if they change
-    // Using Ref or similar could prevent initial render write, 
-    // but saving simple state is fine for this app's scale.
     saveRestDays(restDays);
     saveExtraDays(extraDays);
-    if (rotation) localStorage.setItem('programacion', JSON.stringify(rotation));
-  }, [restDays, extraDays, rotation]);
+  }, [restDays, extraDays]);
 
   const updateConfig = (newConfig: any) => {
     setConfig(newConfig);
@@ -59,7 +52,7 @@ export default function App() {
     return <Login onLogin={handleLogin} correctPin={config.pin} />;
   }
 
-  const tabs = ['Dashboard', 'Días de Descanso', 'Horas Extra', 'Rotación Semanal', 'Configuración'];
+  const tabs = ['Dashboard', 'Días de Descanso', 'Horas Extra', 'Configuración'];
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
@@ -77,10 +70,9 @@ export default function App() {
         <button onClick={handleLogout} className="w-full text-left p-4 text-red-600 font-bold border-t">Cerrar sesión</button>
       </nav>
       <main className="flex-1">
-        {activeTab === 'Dashboard' && <Dashboard operarios={initialOperarios} restDays={restDays} extraDays={extraDays} config={config} rotation={rotation} />}
+        {activeTab === 'Dashboard' && <Dashboard operarios={initialOperarios} restDays={restDays} extraDays={extraDays} config={config} rotation={null} />}
         {activeTab === 'Días de Descanso' && <RestDays operarios={initialOperarios} restDays={restDays} setRestDays={setRestDays} />}
         {activeTab === 'Horas Extra' && <Overtime operarios={initialOperarios} extraDays={extraDays} setExtraDays={setExtraDays} config={config} />}
-        {activeTab === 'Rotación Semanal' && <Rotation operarios={initialOperarios} />}
         {activeTab === 'Configuración' && <Config config={config} setConfig={updateConfig} operarios={initialOperarios} />}
       </main>
     </div>
