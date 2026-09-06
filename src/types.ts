@@ -8,14 +8,16 @@ export type TipoDisponibilidad = 'Ninguna' | 'Primario' | 'Respaldo';
 
 export interface DiaProgramacion {
   turno: TipoTurno;
-  disponibilidad: TipoDisponibilidad;
+  horario: string;
+  maquina?: string;
+  disponibilidad?: TipoDisponibilidad;
 }
 
 export interface ProgramacionSemanal {
   id: string;
-  fechaInicio: string;
-  rotacion: Record<string, Record<string, DiaProgramacion>>; // operarioId -> dia -> DiaProgramacion
-  cargaNocturna: Record<string, number>; // operarioId -> totalNoches (Turno Noche + Disponibilidad)
+  fechaInicio: string; // Domingo de inicio YYYY-MM-DD
+  rotacion: Record<string, Record<string, DiaProgramacion>>; // operarioId -> diaNombre -> DiaProgramacion
+  cargaNocturna?: Record<string, number>;
 }
 
 export interface RegistroResto {
@@ -31,10 +33,17 @@ export interface RegistroExtra {
   id: string;
   operarioId: string;
   fecha: string;
+  horaInicio?: string;
+  horaFin?: string;
+  turnoProgramado?: string;
+  maquina?: string;
   ordinarias: number;
   extraDiurna: number;
   extraNocturna: number;
   extraDominical: number;
+  totalHoras?: number;
+  esFestivo?: boolean;
+  observaciones?: string;
 }
 
 export interface Configuración {

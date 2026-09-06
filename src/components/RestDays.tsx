@@ -105,7 +105,7 @@ const RestDays: React.FC<Props> = ({ operarios, restDays }) => {
           <label className="flex items-center gap-2">
             <input type="checkbox" checked={formData.trabajo} onChange={e => setFormData({...formData, trabajo: e.target.checked})} /> ¿Trabajó?
           </label>
-          <input type="number" placeholder="Horas" value={formData.horas} onChange={e => setFormData({...formData, horas: Number(e.target.value)})} className="border p-2 rounded" />
+          <input type="number" step="0.1" placeholder="Horas" value={formData.horas} onChange={e => setFormData({...formData, horas: Number(e.target.value)})} className="border p-2 rounded" />
           <button onClick={() => handleAddRecord()} className="bg-blue-600 text-white p-2 rounded">Guardar</button>
         </div>
       </div>

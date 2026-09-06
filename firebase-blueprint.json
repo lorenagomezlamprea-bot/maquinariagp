@@ -16,16 +16,23 @@
     },
     "RegistroExtra": {
       "title": "RegistroExtra",
-      "description": "Registro de horas extra y ordinarias",
+      "description": "Registro de horas extra y ordinarias con cálculo de horas inicio/fin",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
         "operarioId": { "type": "string" },
         "fecha": { "type": "string" },
+        "horaInicio": { "type": "string" },
+        "horaFin": { "type": "string" },
+        "turnoProgramado": { "type": "string" },
+        "maquina": { "type": "string" },
         "ordinarias": { "type": "number" },
         "extraDiurna": { "type": "number" },
         "extraNocturna": { "type": "number" },
-        "extraDominical": { "type": "number" }
+        "extraDominical": { "type": "number" },
+        "totalHoras": { "type": "number" },
+        "esFestivo": { "type": "boolean" },
+        "observaciones": { "type": "string" }
       },
       "required": ["id", "operarioId", "fecha", "ordinarias", "extraDiurna", "extraNocturna", "extraDominical"]
     },
