@@ -40,10 +40,19 @@ const Dashboard: React.FC<Props> = ({ operarios, restDays, extraDays, config }) 
         {operarios.map((op) => {
           const shift = getProgramacionOperario(op.id, todayStr);
 
-          const restEntries = restDays.filter(
-            (rd) => rd.operarioId === op.id && rd.fecha.startsWith(currentMonth) && rd.trabajo
-          );
-          const restCount = restEntries.length;
+          // Count unique worked rest dates in current month
+          const workedRestDates = new Set<string>();
+          restDays.forEach((rd) => {
+            if (rd.operarioId === op.id && rd.fecha.startsWith(currentMonth) && rd.trabajo) {
+              workedRestDates.add(rd.fecha);
+            }
+          });
+          extraDays.forEach((ed) => {
+            if (ed.operarioId === op.id && ed.fecha.startsWith(currentMonth) && ed.esDescansoTrabajado) {
+              workedRestDates.add(ed.fecha);
+            }
+          });
+          const restCount = workedRestDates.size;
 
           const extraMonth = extraDays
             .filter((ed) => ed.operarioId === op.id && ed.fecha.startsWith(currentMonth))

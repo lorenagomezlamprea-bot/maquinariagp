@@ -16,7 +16,7 @@ import {
   Info,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { saveExtraDayDoc, deleteExtraDayDoc } from '../lib/data';
+import { saveExtraDayDoc, deleteExtraDayDoc, deleteRestDayDoc } from '../lib/data';
 import { getProgramacionOperario, getWeekScheduleMatrix, getSundayOfWeek, ShiftInfo } from '../lib/schedule';
 import { calcularDesgloseHoras, DesgloseHorasResult } from '../lib/calculator';
 
@@ -58,21 +58,52 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
 
   // Modal for 5th day blocking
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
-  const [pendingSubmit, setPendingSubmit] = useState<boolean>(false);
+
+  // Unified records list merging extraDays and legacy restDays so no past rest-day record is invisible
+  const unifiedRecords: RegistroExtra[] = useMemo(() => {
+    const list: RegistroExtra[] = [...extraDays];
+    const existingIds = new Set(extraDays.map((ed) => ed.id));
+    const existingKeys = new Set(extraDays.map((ed) => `${ed.operarioId}_${ed.fecha}`));
+
+    // Include any restDays records that aren't already represented in extraDays
+    restDays.forEach((rd) => {
+      const key = `${rd.operarioId}_${rd.fecha}`;
+      if (rd.trabajo && !existingIds.has(rd.id) && !existingKeys.has(key)) {
+        list.push({
+          id: rd.id,
+          operarioId: rd.operarioId,
+          fecha: rd.fecha,
+          horaInicio: '06:00',
+          horaFin: '14:00',
+          turnoProgramado: rd.tipoDia || 'Descanso programado',
+          maquina: undefined,
+          ordinarias: 0,
+          extraDiurna: 0,
+          extraNocturna: 0,
+          extraDominical: rd.horas || 8,
+          totalHoras: rd.horas || 8,
+          esFestivo: false,
+          esDescansoTrabajado: true,
+          tipoDia: rd.tipoDia,
+          observaciones: 'Descanso trabajado',
+        });
+      }
+    });
+
+    return list.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+  }, [extraDays, restDays]);
 
   // Helper to count worked rest days in a given month without double counting
-  const getMonthlyRestDaysCount = (operarioId: string, monthStr: string, excludeRecordId?: string) => {
+  const getMonthlyRestDaysCount = (operarioId: string, monthStr: string) => {
     const dates = new Set<string>();
 
     restDays.forEach((rd) => {
-      if (excludeRecordId && rd.id === excludeRecordId) return;
       if (rd.operarioId === operarioId && rd.fecha.startsWith(monthStr) && rd.trabajo) {
         dates.add(rd.fecha);
       }
     });
 
     extraDays.forEach((ed) => {
-      if (excludeRecordId && ed.id === excludeRecordId) return;
       if (ed.operarioId === operarioId && ed.fecha.startsWith(monthStr) && ed.esDescansoTrabajado) {
         dates.add(ed.fecha);
       }
@@ -138,14 +169,14 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
     const sundayTime = new Date(currentWeekSunday).getTime();
     const saturdayTime = sundayTime + 6 * 24 * 60 * 60 * 1000;
 
-    return extraDays
+    return unifiedRecords
       .filter((ed) => {
         if (ed.operarioId !== selectedOperarioId) return false;
         const edTime = new Date(ed.fecha).getTime();
         return edTime >= sundayTime && edTime <= saturdayTime;
       })
       .reduce((sum, ed) => sum + ed.extraDiurna + ed.extraNocturna + ed.extraDominical, 0);
-  }, [extraDays, selectedOperarioId, selectedFecha]);
+  }, [unifiedRecords, selectedOperarioId, selectedFecha]);
 
   const isWeeklyOverLimit = currentOperarioWeeklyOT + totalHorasExtras > config.topeHorasExtraSemanales;
 
@@ -197,6 +228,7 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
     if (confirm('¿Desea eliminar este registro de jornada? Esta acción actualizará los descansos trabajados y las horas extras asociadas.')) {
       try {
         await deleteExtraDayDoc(id);
+        await deleteRestDayDoc(id).catch(() => {});
       } catch (err) {
         console.error('Error eliminando registro:', err);
       }
@@ -204,7 +236,7 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
   };
 
   const handleUpdateRecordField = async (id: string, field: keyof RegistroExtra, value: any) => {
-    const target = extraDays.find((ed) => ed.id === id);
+    const target = unifiedRecords.find((ed) => ed.id === id);
     if (!target) return;
     const updated: RegistroExtra = {
       ...target,
@@ -218,13 +250,13 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
   };
 
   const getFilteredPeriodOT = (operarioId: string, monthStr: string) => {
-    return extraDays
+    return unifiedRecords
       .filter((ed) => ed.operarioId === operarioId && ed.fecha.startsWith(monthStr))
       .reduce((sum, ed) => sum + (ed.extraDiurna || 0) + (ed.extraNocturna || 0) + (ed.extraDominical || 0), 0);
   };
 
   const calculateLiquidacionMonth = (operarioId: string, monthStr: string) => {
-    const records = extraDays.filter((ed) => ed.operarioId === operarioId && ed.fecha.startsWith(monthStr));
+    const records = unifiedRecords.filter((ed) => ed.operarioId === operarioId && ed.fecha.startsWith(monthStr));
     const baseHourlyRate = (config.salariosBase[operarioId] || 2000000) / 168; // 168h base mensual
     return records.reduce((sum, ed) => {
       return (
@@ -249,13 +281,7 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
     setScheduleWeekSunday(newSunday);
   };
 
-  // Historical records for the selected month in "Liquidación y Estadísticas"
-  const historyRecords = useMemo(() => {
-    // Collect all records for this month
-    const extraList = extraDays.filter((ed) => ed.fecha.startsWith(historyMonth));
-    return extraList.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
-  }, [extraDays, historyMonth]);
-
+  // Historical rest days for the selected month in "Liquidación y Estadísticas"
   const historyRestDays = useMemo(() => {
     const combined: Array<{
       id: string;
@@ -269,7 +295,7 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
 
     const seenKeys = new Set<string>();
 
-    extraDays.forEach((ed) => {
+    unifiedRecords.forEach((ed) => {
       if (ed.fecha.startsWith(historyMonth) && ed.esDescansoTrabajado) {
         const key = `${ed.operarioId}_${ed.fecha}`;
         seenKeys.add(key);
@@ -285,24 +311,8 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
       }
     });
 
-    restDays.forEach((rd) => {
-      if (rd.fecha.startsWith(historyMonth) && rd.trabajo) {
-        const key = `${rd.operarioId}_${rd.fecha}`;
-        if (!seenKeys.has(key)) {
-          seenKeys.add(key);
-          combined.push({
-            id: rd.id,
-            operarioId: rd.operarioId,
-            fecha: rd.fecha,
-            tipoDia: rd.tipoDia,
-            horas: rd.horas,
-          });
-        }
-      }
-    });
-
     return combined.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
-  }, [extraDays, restDays, historyMonth]);
+  }, [unifiedRecords, historyMonth]);
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -353,75 +363,6 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
       {/* VIEW 1: REGISTRO Y CÁLCULO */}
       {activeTab === 'registro' && (
         <div className="space-y-6">
-          {/* Top 3 Summary Cards for Operarios (Fidel, Orlando, Wilson) with X/4 rest days tracking */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {operarios.map((op) => {
-              const count = getMonthlyRestDaysCount(op.id, selectedMonthOfDate);
-              const isSelected = op.id === selectedOperarioId;
-
-              let alertBg = 'bg-green-50/80 border-green-300 text-green-900';
-              let badgeBg = 'bg-green-100 text-green-800';
-              let alertText = '0–1 días: Ritmo óptimo';
-              let progressColor = 'bg-green-600';
-
-              if (count === 2) {
-                alertBg = 'bg-yellow-50/80 border-yellow-300 text-yellow-900';
-                badgeBg = 'bg-yellow-100 text-yellow-800 font-bold';
-                alertText = '2 de 4 descansos trabajados';
-                progressColor = 'bg-yellow-500';
-              } else if (count === 3) {
-                alertBg = 'bg-orange-50/80 border-orange-300 text-orange-900';
-                badgeBg = 'bg-orange-100 text-orange-800 font-bold';
-                alertText = 'Atención: Le queda 1 día disponible';
-                progressColor = 'bg-orange-500';
-              } else if (count >= config.topeDiasDescanso) {
-                alertBg = 'bg-red-50 border-red-300 text-red-900';
-                badgeBg = 'bg-red-100 text-red-800 font-bold';
-                alertText = 'Tope mensual alcanzado (Requiere autorización)';
-                progressColor = 'bg-red-600';
-              }
-
-              return (
-                <div
-                  key={op.id}
-                  onClick={() => setSelectedOperarioId(op.id)}
-                  className={`cursor-pointer rounded-xl p-4 border-2 transition shadow-sm ${alertBg} ${
-                    isSelected ? 'ring-2 ring-blue-600 shadow-md scale-[1.01]' : 'hover:shadow'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-gray-900 text-base">{op.nombre}</span>
-                    <span className={`text-[11px] px-2 py-0.5 rounded-full ${badgeBg}`}>
-                      {count}/{config.topeDiasDescanso} días
-                    </span>
-                  </div>
-
-                  <div className="mt-2 text-xs font-medium text-gray-600">
-                    Descansos trabajados en el mes:
-                  </div>
-
-                  <div className="w-full bg-gray-200/80 h-2 rounded-full mt-1.5 overflow-hidden">
-                    <div
-                      className={`h-full transition-all duration-300 ${progressColor}`}
-                      style={{ width: `${Math.min(100, (count / config.topeDiasDescanso) * 100)}%` }}
-                    ></div>
-                  </div>
-
-                  <div className="mt-2 text-[11px] font-medium leading-tight flex items-center gap-1">
-                    {count >= 4 ? (
-                      <AlertTriangle className="w-3.5 h-3.5 text-red-600 shrink-0" />
-                    ) : count === 3 ? (
-                      <AlertCircle className="w-3.5 h-3.5 text-orange-600 shrink-0" />
-                    ) : (
-                      <CheckCircle2 className="w-3.5 h-3.5 text-green-600 shrink-0" />
-                    )}
-                    <span>{alertText}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
           {/* Main Input Form */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <div className="bg-gradient-to-r from-blue-700 to-indigo-800 text-white px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -871,13 +812,13 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
             </form>
           </div>
 
-          {/* Table of Saved Records */}
+          {/* Table of All Saved Records (Including all Worked Rest Days & Shifts) */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-3">
               <div>
                 <h2 className="text-lg font-bold text-gray-800">Registros Guardados en Gestión del Talento</h2>
                 <p className="text-xs text-gray-500">
-                  Total de registros: {extraDays.length} | Sincronización automática de descansos y horas extra en Firestore
+                  Total de registros: {unifiedRecords.length} | Desglose unificado de jornadas laborales y días de descanso trabajados
                 </p>
               </div>
 
@@ -886,7 +827,7 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
               </div>
             </div>
 
-            {extraDays.length === 0 ? (
+            {unifiedRecords.length === 0 ? (
               <div className="text-center py-10 text-gray-400">
                 <Clock className="w-10 h-10 mx-auto mb-2 opacity-40" />
                 <p>No hay registros de jornadas ingresados aún.</p>
@@ -910,90 +851,87 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {extraDays
-                      .slice()
-                      .sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime())
-                      .map((ed) => {
-                        const op = operarios.find((o) => o.id === ed.operarioId);
-                        const totalEd = (ed.ordinarias || 0) + (ed.extraDiurna || 0) + (ed.extraNocturna || 0) + (ed.extraDominical || 0);
-                        return (
-                          <tr key={ed.id} className="hover:bg-gray-50 transition">
-                            <td className="p-2.5 font-medium whitespace-nowrap text-gray-800">
-                              {ed.fecha}
-                            </td>
-                            <td className="p-2.5 font-bold text-gray-900 whitespace-nowrap">
-                              {op?.nombre || 'Operario'}
-                            </td>
-                            <td className="p-2.5 text-xs text-gray-600 whitespace-nowrap">
-                              {ed.horaInicio && ed.horaFin ? (
-                                <span className="bg-gray-100 px-2 py-0.5 rounded font-mono font-medium">
-                                  {ed.horaInicio} – {ed.horaFin}
+                    {unifiedRecords.map((ed) => {
+                      const op = operarios.find((o) => o.id === ed.operarioId);
+                      const totalEd = (ed.ordinarias || 0) + (ed.extraDiurna || 0) + (ed.extraNocturna || 0) + (ed.extraDominical || 0);
+                      return (
+                        <tr key={ed.id} className="hover:bg-gray-50 transition">
+                          <td className="p-2.5 font-medium whitespace-nowrap text-gray-800">
+                            {ed.fecha}
+                          </td>
+                          <td className="p-2.5 font-bold text-gray-900 whitespace-nowrap">
+                            {op?.nombre || 'Operario'}
+                          </td>
+                          <td className="p-2.5 text-xs text-gray-600 whitespace-nowrap">
+                            {ed.horaInicio && ed.horaFin ? (
+                              <span className="bg-gray-100 px-2 py-0.5 rounded font-mono font-medium">
+                                {ed.horaInicio} – {ed.horaFin}
+                              </span>
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                            )}
+                          </td>
+                          <td className="p-2.5 text-xs text-gray-600 whitespace-nowrap">
+                            <div className="space-y-0.5">
+                              <div>{ed.turnoProgramado || '-'}</div>
+                              {ed.esDescansoTrabajado && (
+                                <span className="inline-block bg-yellow-100 text-yellow-900 text-[10px] px-1.5 py-0.5 rounded font-bold border border-yellow-300">
+                                  Descanso Trabajado {ed.autorizacionGestionHumana ? '· (Aut. GH)' : ''}
                                 </span>
-                              ) : (
-                                <span className="text-gray-400">-</span>
                               )}
-                            </td>
-                            <td className="p-2.5 text-xs text-gray-600 whitespace-nowrap">
-                              <div className="space-y-0.5">
-                                <div>{ed.turnoProgramado || '-'}</div>
-                                {ed.esDescansoTrabajado && (
-                                  <span className="inline-block bg-yellow-100 text-yellow-900 text-[10px] px-1.5 py-0.5 rounded font-bold border border-yellow-300">
-                                    Descanso Trabajado {ed.autorizacionGestionHumana ? '· (Aut. GH)' : ''}
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-                            <td className="p-2.5 text-center">
-                              <input
-                                type="number"
-                                step="0.1"
-                                className="w-16 text-center border rounded p-1 text-xs font-semibold"
-                                value={ed.ordinarias}
-                                onChange={(e) => handleUpdateRecordField(ed.id, 'ordinarias', Number(e.target.value))}
-                              />
-                            </td>
-                            <td className="p-2.5 text-center bg-amber-50/40">
-                              <input
-                                type="number"
-                                step="0.1"
-                                className="w-16 text-center border border-amber-300 rounded p-1 text-xs font-bold text-amber-800"
-                                value={ed.extraDiurna}
-                                onChange={(e) => handleUpdateRecordField(ed.id, 'extraDiurna', Number(e.target.value))}
-                              />
-                            </td>
-                            <td className="p-2.5 text-center bg-indigo-50/40">
-                              <input
-                                type="number"
-                                step="0.1"
-                                className="w-16 text-center border border-indigo-300 rounded p-1 text-xs font-bold text-indigo-800"
-                                value={ed.extraNocturna}
-                                onChange={(e) => handleUpdateRecordField(ed.id, 'extraNocturna', Number(e.target.value))}
-                              />
-                            </td>
-                            <td className="p-2.5 text-center bg-purple-50/40">
-                              <input
-                                type="number"
-                                step="0.1"
-                                className="w-16 text-center border border-purple-300 rounded p-1 text-xs font-bold text-purple-800"
-                                value={ed.extraDominical}
-                                onChange={(e) => handleUpdateRecordField(ed.id, 'extraDominical', Number(e.target.value))}
-                              />
-                            </td>
-                            <td className="p-2.5 text-center font-bold text-gray-800 text-xs">
-                              {totalEd.toFixed(1)}h
-                            </td>
-                            <td className="p-2.5 text-center">
-                              <button
-                                onClick={() => handleDelete(ed.id)}
-                                className="text-red-500 hover:text-red-700 p-1.5 rounded hover:bg-red-50 transition"
-                                title="Eliminar registro"
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
+                            </div>
+                          </td>
+                          <td className="p-2.5 text-center">
+                            <input
+                              type="number"
+                              step="0.1"
+                              className="w-16 text-center border rounded p-1 text-xs font-semibold"
+                              value={ed.ordinarias}
+                              onChange={(e) => handleUpdateRecordField(ed.id, 'ordinarias', Number(e.target.value))}
+                            />
+                          </td>
+                          <td className="p-2.5 text-center bg-amber-50/40">
+                            <input
+                              type="number"
+                              step="0.1"
+                              className="w-16 text-center border border-amber-300 rounded p-1 text-xs font-bold text-amber-800"
+                              value={ed.extraDiurna}
+                              onChange={(e) => handleUpdateRecordField(ed.id, 'extraDiurna', Number(e.target.value))}
+                            />
+                          </td>
+                          <td className="p-2.5 text-center bg-indigo-50/40">
+                            <input
+                              type="number"
+                              step="0.1"
+                              className="w-16 text-center border border-indigo-300 rounded p-1 text-xs font-bold text-indigo-800"
+                              value={ed.extraNocturna}
+                              onChange={(e) => handleUpdateRecordField(ed.id, 'extraNocturna', Number(e.target.value))}
+                            />
+                          </td>
+                          <td className="p-2.5 text-center bg-purple-50/40">
+                            <input
+                              type="number"
+                              step="0.1"
+                              className="w-16 text-center border border-purple-300 rounded p-1 text-xs font-bold text-purple-800"
+                              value={ed.extraDominical}
+                              onChange={(e) => handleUpdateRecordField(ed.id, 'extraDominical', Number(e.target.value))}
+                            />
+                          </td>
+                          <td className="p-2.5 text-center font-bold text-gray-800 text-xs">
+                            {totalEd.toFixed(1)}h
+                          </td>
+                          <td className="p-2.5 text-center">
+                            <button
+                              onClick={() => handleDelete(ed.id)}
+                              className="text-red-500 hover:text-red-700 p-1.5 rounded hover:bg-red-50 transition"
+                              title="Eliminar registro"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1148,7 +1086,7 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
         </div>
       )}
 
-      {/* VIEW 3: LIQUIDACIÓN Y ESTADÍSTICAS (With historical month selector and complete audit logs) */}
+      {/* VIEW 3: LIQUIDACIÓN Y ESTADÍSTICAS */}
       {activeTab === 'liquidacion' && (
         <div className="space-y-6">
           {/* Period Selector Bar */}
