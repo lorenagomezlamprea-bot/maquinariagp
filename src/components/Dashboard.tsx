@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Operario, RegistroResto, RegistroExtra, Configuración, ProgramacionSemanal } from '../types';
-import { getProgramacionOperario, getSundayOfWeek, DIA_NOMBRES } from '../lib/schedule';
-import { Clock, Calendar, AlertTriangle, CheckCircle2, User, ChevronRight } from 'lucide-react';
+import { getProgramacionOperario, getSundayOfWeek, getLocalTodayStr, getMonthlyWorkedRestDays, DIA_NOMBRES } from '../lib/schedule';
+import { Clock, Calendar, AlertTriangle, CheckCircle2, User, ChevronRight, ShieldCheck, Sparkles } from 'lucide-react';
 
 interface Props {
   operarios: Operario[];
@@ -12,12 +12,12 @@ interface Props {
 }
 
 const Dashboard: React.FC<Props> = ({ operarios, restDays, extraDays, config }) => {
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const currentMonth = todayStr.slice(0, 7);
   const currentWeekSunday = getSundayOfWeek(todayStr);
 
   const now = new Date();
-  const dayName = DIA_NOMBRES[now.getDay()];
+  const dayName = DIA_NOMBRES[now.getDay()] || 'Hoy';
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -38,23 +38,56 @@ const Dashboard: React.FC<Props> = ({ operarios, restDays, extraDays, config }) 
       {/* Operarios Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {operarios.map((op) => {
-          const shift = getProgramacionOperario(op.id, todayStr);
+          // 1. Programación teórica de respaldo
+          const theoreticalShift = getProgramacionOperario(op.id, todayStr);
 
-          // Count unique worked rest dates in current month
-          const workedRestDates = new Set<string>();
-          (restDays || []).forEach((rd) => {
-            if (rd && rd.operarioId === op.id && rd.fecha && rd.fecha.startsWith(currentMonth) && rd.trabajo) {
-              workedRestDates.add(rd.fecha);
+          // 2. Cruce con registro real de hoy (si ya registró jornada en extraDays o restDays)
+          const todayRealExtra = (extraDays || []).find(
+            (ed) => ed && ed.operarioId === op.id && ed.fecha === todayStr
+          );
+          const todayRealRest = !todayRealExtra
+            ? (restDays || []).find((rd) => rd && rd.operarioId === op.id && rd.fecha === todayStr && rd.trabajo)
+            : null;
+
+          const hasRealRecord = Boolean(todayRealExtra || todayRealRest);
+
+          let shiftTurnoText: string = theoreticalShift.turno;
+          let shiftHorarioText: string = theoreticalShift.horario;
+          let shiftMaquinaText = theoreticalShift.maquina || '';
+          let shiftBadgeStyle =
+            theoreticalShift.turno === 'Turno Día'
+              ? 'bg-amber-100 text-amber-900 border border-amber-300'
+              : theoreticalShift.turno === 'Turno Noche'
+              ? 'bg-indigo-900 text-white'
+              : 'bg-yellow-100 text-yellow-900 border border-yellow-300';
+          let isDescansoWorkedToday = false;
+
+          if (todayRealExtra) {
+            isDescansoWorkedToday = Boolean(todayRealExtra.esDescansoTrabajado);
+            if (isDescansoWorkedToday) {
+              const startH = todayRealExtra.horaInicio || '06:00';
+              const baseName = startH >= '14:00' ? 'Turno Noche' : 'Turno Día';
+              shiftTurnoText = `${baseName} — Descanso trabajado`;
+              shiftBadgeStyle = 'bg-emerald-100 text-emerald-950 border border-emerald-300 font-bold';
+            } else {
+              shiftTurnoText = todayRealExtra.turnoProgramado || theoreticalShift.turno || 'Turno Día';
+              shiftBadgeStyle = 'bg-blue-100 text-blue-900 border border-blue-300 font-bold';
             }
-          });
-          (extraDays || []).forEach((ed) => {
-            if (ed && ed.operarioId === op.id && ed.fecha && ed.fecha.startsWith(currentMonth) && ed.esDescansoTrabajado) {
-              workedRestDates.add(ed.fecha);
-            }
-          });
-          const restCount = workedRestDates.size;
+            shiftHorarioText = `${todayRealExtra.horaInicio || '06:00'}–${todayRealExtra.horaFin || '14:00'} (${todayRealExtra.totalHoras || 8}h)`;
+            shiftMaquinaText = todayRealExtra.maquina || theoreticalShift.maquina || '';
+          } else if (todayRealRest) {
+            isDescansoWorkedToday = true;
+            shiftTurnoText = 'Turno Día — Descanso trabajado';
+            shiftHorarioText = `06:00–14:00 (${todayRealRest.horas || 8}h)`;
+            shiftBadgeStyle = 'bg-emerald-100 text-emerald-950 border border-emerald-300 font-bold';
+            shiftMaquinaText = theoreticalShift.maquina || '';
+          }
+
+          // 3. Conteo unificado de descansos trabajados en el mes
+          const { count: restCount } = getMonthlyWorkedRestDays(op.id, currentMonth, restDays, extraDays);
           const maxRestAllowed = Number(config?.topeDiasDescanso || 4);
 
+          // 4. Conteo de Horas Extras acumuladas en el mes
           const extraMonth = (extraDays || [])
             .filter((ed) => ed && ed.operarioId === op.id && ed.fecha && ed.fecha.startsWith(currentMonth))
             .reduce((s, ed) => {
@@ -89,18 +122,22 @@ const Dashboard: React.FC<Props> = ({ operarios, restDays, extraDays, config }) 
           let alertBadge = 'bg-green-100 text-green-800';
           let alertText = 'Estado óptimo';
 
-          if (restCount === 2) {
+          if (restCount === 1) {
+            alertBorder = 'border-blue-200';
+            alertBadge = 'bg-blue-100 text-blue-800';
+            alertText = '1 de 4 descansos trabajados';
+          } else if (restCount === 2) {
             alertBorder = 'border-yellow-400';
             alertBadge = 'bg-yellow-100 text-yellow-800';
             alertText = '2 de 4 descansos trabajados';
           } else if (restCount === 3) {
             alertBorder = 'border-orange-400';
-            alertBadge = 'bg-orange-100 text-orange-800';
-            alertText = 'Alerta: Queda 1 día disponible';
+            alertBadge = 'bg-orange-100 text-orange-800 font-semibold';
+            alertText = 'Alerta: Queda 1 día disponible (3/4)';
           } else if (restCount >= maxRestAllowed) {
             alertBorder = 'border-red-500';
             alertBadge = 'bg-red-100 text-red-800 font-bold';
-            alertText = 'Tope mensual alcanzado';
+            alertText = `Tope mensual alcanzado (${restCount}/${maxRestAllowed})`;
           }
 
           return (
@@ -120,29 +157,38 @@ const Dashboard: React.FC<Props> = ({ operarios, restDays, extraDays, config }) 
               </div>
 
               {/* Turno Hoy */}
-              <div className="bg-gray-50 p-3 rounded-lg border border-gray-100 space-y-1">
-                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Turno de Hoy ({shift.nombreDia})
-                </div>
+              <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span
-                    className={`font-black text-sm px-2 py-0.5 rounded ${
-                      shift.turno === 'Turno Día'
-                        ? 'bg-amber-100 text-amber-900'
-                        : shift.turno === 'Turno Noche'
-                        ? 'bg-indigo-900 text-white'
-                        : 'bg-yellow-200 text-yellow-900'
-                    }`}
-                  >
-                    {shift.turno}
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    Turno de Hoy ({theoreticalShift.nombreDia})
+                  </div>
+                  {hasRealRecord ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                      <CheckCircle2 size={11} />
+                      Real Registrado
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-gray-400 font-medium">
+                      Programación Teórica
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`font-black text-xs sm:text-sm px-2 py-1 rounded ${shiftBadgeStyle}`}>
+                    {shiftTurnoText}
                   </span>
-                  <span className="text-xs font-semibold text-gray-600">
-                    {shift.horario}
+                  <span className="text-xs font-semibold text-gray-700 shrink-0">
+                    {shiftHorarioText}
                   </span>
                 </div>
-                {shift.maquina && (
-                  <div className="text-xs text-gray-600 font-medium">
-                    Máquina: <span className="font-bold text-gray-800">{shift.maquina}</span>
+
+                {shiftMaquinaText && (
+                  <div className="text-xs text-gray-600 font-medium flex items-center justify-between pt-1 border-t border-gray-100">
+                    <span>Máquina asignada:</span>
+                    <span className="font-bold text-gray-800 bg-white px-2 py-0.5 rounded border border-gray-200">
+                      {shiftMaquinaText}
+                    </span>
                   </div>
                 )}
               </div>
@@ -156,7 +202,7 @@ const Dashboard: React.FC<Props> = ({ operarios, restDays, extraDays, config }) 
                 <div className="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
                   <div
                     className={`h-full transition-all duration-300 ${
-                      restCount >= 4 ? 'bg-red-600' : restCount === 3 ? 'bg-orange-500' : 'bg-blue-600'
+                      restCount >= 4 ? 'bg-red-600' : restCount === 3 ? 'bg-orange-500' : restCount === 2 ? 'bg-yellow-500' : 'bg-blue-600'
                     }`}
                     style={{ width: `${Math.min(100, (restCount / config.topeDiasDescanso) * 100)}%` }}
                   ></div>

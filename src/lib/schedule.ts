@@ -75,6 +75,57 @@ export const DEFAULT_BASE_PATTERN_MAP: Record<string, number> = {
   '3': 0, // Wilson
 };
 
+export function getLocalTodayStr(d: Date = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Calculates unique worked rest days for an operario in a given month (YYYY-MM)
+ * by merging records from extraDays and restDays seamlessly.
+ */
+export function getMonthlyWorkedRestDays(
+  operarioId: string,
+  monthStr: string,
+  restDays: any[] = [],
+  extraDays: any[] = []
+): { count: number; dates: Set<string> } {
+  if (!monthStr || monthStr.length < 7) return { count: 0, dates: new Set() };
+  const dates = new Set<string>();
+
+  (restDays || []).forEach((rd) => {
+    if (
+      rd &&
+      rd.operarioId === operarioId &&
+      rd.fecha &&
+      typeof rd.fecha === 'string' &&
+      rd.fecha.startsWith(monthStr) &&
+      rd.trabajo
+    ) {
+      dates.add(rd.fecha);
+    }
+  });
+
+  (extraDays || []).forEach((ed) => {
+    if (
+      ed &&
+      ed.operarioId === operarioId &&
+      ed.fecha &&
+      typeof ed.fecha === 'string' &&
+      ed.fecha.startsWith(monthStr) &&
+      (ed.esDescansoTrabajado ||
+        (ed.tipoDia && String(ed.tipoDia).toLowerCase().includes('descanso')) ||
+        (ed.turnoProgramado && String(ed.turnoProgramado).toLowerCase().includes('descanso')))
+    ) {
+      dates.add(ed.fecha);
+    }
+  });
+
+  return { count: dates.size, dates };
+}
+
 // Helper function to safely parse dates without throwing or returning NaN
 function parseSafeDate(dateStr?: string): { date: Date; valid: boolean } {
   if (!dateStr || typeof dateStr !== 'string' || dateStr.trim().length < 8) {

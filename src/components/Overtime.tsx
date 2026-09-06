@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { saveExtraDayDoc, deleteExtraDayDoc, deleteRestDayDoc } from '../lib/data';
-import { getProgramacionOperario, getWeekScheduleMatrix, getSundayOfWeek, ShiftInfo } from '../lib/schedule';
+import { getProgramacionOperario, getWeekScheduleMatrix, getSundayOfWeek, getLocalTodayStr, getMonthlyWorkedRestDays, ShiftInfo } from '../lib/schedule';
 import { calcularDesgloseHoras, DesgloseHorasResult } from '../lib/calculator';
 
 interface Props {
@@ -29,7 +29,7 @@ interface Props {
 }
 
 const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config }) => {
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalTodayStr();
   const currentMonthStr = todayStr.slice(0, 7);
 
   const [selectedOperarioId, setSelectedOperarioId] = useState<string>(operarios[0]?.id || '1');
@@ -102,22 +102,7 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
 
   // Helper to count worked rest days in a given month without double counting
   const getMonthlyRestDaysCount = (operarioId: string, monthStr: string) => {
-    if (!monthStr || monthStr.length < 7) return 0;
-    const dates = new Set<string>();
-
-    (restDays || []).forEach((rd) => {
-      if (rd && rd.operarioId === operarioId && rd.fecha && typeof rd.fecha === 'string' && rd.fecha.startsWith(monthStr) && rd.trabajo) {
-        dates.add(rd.fecha);
-      }
-    });
-
-    (extraDays || []).forEach((ed) => {
-      if (ed && ed.operarioId === operarioId && ed.fecha && typeof ed.fecha === 'string' && ed.fecha.startsWith(monthStr) && ed.esDescansoTrabajado) {
-        dates.add(ed.fecha);
-      }
-    });
-
-    return dates.size;
+    return getMonthlyWorkedRestDays(operarioId, monthStr, restDays, extraDays).count;
   };
 
   // Check if current date input is a well-formed, valid date
