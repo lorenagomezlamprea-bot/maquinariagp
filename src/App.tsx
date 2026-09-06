@@ -68,7 +68,7 @@ export default function App() {
     return <Login onLogin={handleLogin} correctPin={config.pin} />;
   }
 
-  const tabs = ['Dashboard', 'Días de Descanso', 'Horas Extra', 'Configuración'];
+  const tabs = ['Dashboard', 'Gestión del Talento', 'Configuración'];
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
@@ -81,6 +81,7 @@ export default function App() {
             {tabs.map((tab) => (
               <button
                 key={tab}
+                id={`nav-${tab.toLowerCase().replace(/\s+/g, '-')}`}
                 onClick={() => setActiveTab(tab)}
                 className={`w-full text-left px-4 py-3 font-medium transition flex items-center justify-between ${
                   activeTab === tab ? 'bg-blue-50 text-blue-700 border-r-4 border-blue-600 font-semibold' : 'text-gray-700 hover:bg-gray-50'
@@ -116,17 +117,11 @@ export default function App() {
             rotation={null}
           />
         )}
-        {activeTab === 'Días de Descanso' && (
-          <RestDays
-            operarios={initialOperarios}
-            restDays={restDays}
-            setRestDays={setRestDays}
-          />
-        )}
-        {activeTab === 'Horas Extra' && (
+        {activeTab === 'Gestión del Talento' && (
           <Overtime
             operarios={initialOperarios}
             extraDays={extraDays}
+            restDays={restDays}
             setExtraDays={setExtraDays}
             config={config}
           />

@@ -105,23 +105,45 @@ export const subscribeExtraDays = (callback: (data: RegistroExtra[]) => void) =>
   );
 };
 
-// Save or update single extra day
+// Save or update single extra day with automatic synchronization to restDays
 export const saveExtraDayDoc = async (data: RegistroExtra) => {
   const path = `${EXTRA_DAYS_COLLECTION}/${data.id}`;
   try {
     const docRef = doc(db, EXTRA_DAYS_COLLECTION, data.id);
     await setDoc(docRef, data);
+
+    // If marked as worked rest day, create or update matching record in restDays
+    if (data.esDescansoTrabajado) {
+      const restDocRef = doc(db, REST_DAYS_COLLECTION, data.id);
+      const restRecord: RegistroResto = {
+        id: data.id,
+        operarioId: data.operarioId,
+        fecha: data.fecha,
+        tipoDia: data.tipoDia || 'Descanso entre semana',
+        trabajo: true,
+        horas: data.totalHoras || (data.ordinarias + data.extraDiurna + data.extraNocturna + data.extraDominical) || 8,
+      };
+      await setDoc(restDocRef, restRecord);
+    } else {
+      // If NOT a worked rest day, clean up any previous restDays doc with this ID to prevent orphan counts
+      const restDocRef = doc(db, REST_DAYS_COLLECTION, data.id);
+      await deleteDoc(restDocRef).catch(() => {});
+    }
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
 };
 
-// Delete single extra day
+// Delete single extra day with cleanup in restDays
 export const deleteExtraDayDoc = async (id: string) => {
   const path = `${EXTRA_DAYS_COLLECTION}/${id}`;
   try {
     const docRef = doc(db, EXTRA_DAYS_COLLECTION, id);
     await deleteDoc(docRef);
+
+    // Also delete from restDays to ensure no orphan count remains
+    const restDocRef = doc(db, REST_DAYS_COLLECTION, id);
+    await deleteDoc(restDocRef).catch(() => {});
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
   }

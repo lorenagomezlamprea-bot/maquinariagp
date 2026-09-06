@@ -43,6 +43,9 @@ export interface RegistroExtra {
   extraDominical: number;
   totalHoras?: number;
   esFestivo?: boolean;
+  esDescansoTrabajado?: boolean;
+  tipoDia?: 'Descanso entre semana' | 'Domingo programado';
+  autorizacionGestionHumana?: boolean;
   observaciones?: string;
 }
 

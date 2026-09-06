@@ -32,6 +32,9 @@
         "extraDominical": { "type": "number" },
         "totalHoras": { "type": "number" },
         "esFestivo": { "type": "boolean" },
+        "esDescansoTrabajado": { "type": "boolean" },
+        "tipoDia": { "type": "string" },
+        "autorizacionGestionHumana": { "type": "boolean" },
         "observaciones": { "type": "string" }
       },
       "required": ["id", "operarioId", "fecha", "ordinarias", "extraDiurna", "extraNocturna", "extraDominical"]
