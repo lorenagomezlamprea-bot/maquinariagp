@@ -50,25 +50,32 @@ export function calcularDesgloseHoras(params: {
 }): DesgloseHorasResult {
   const { fecha, horaInicio, horaFin, esDescanso = false, esFestivoOverride, maxOrdinarias = 8 } = params;
 
-  const parts = fecha.split('-').map(Number);
-  const d = new Date(parts[0], parts[1] - 1, parts[2]);
-  const dayOfWeek = d.getDay(); // 0 is Sunday
-  const esDomingo = dayOfWeek === 0;
-  const esFestivo = esFestivoOverride !== undefined ? esFestivoOverride : COLOMBIAN_HOLIDAYS.has(fecha);
+  let esDomingo = false;
+  if (fecha && typeof fecha === 'string' && fecha.trim().length >= 8) {
+    const parts = fecha.trim().split('-').map(Number);
+    if (parts.length >= 3 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(parts[2])) {
+      const d = new Date(parts[0], parts[1] - 1, parts[2]);
+      if (!isNaN(d.getTime())) {
+        esDomingo = d.getDay() === 0;
+      }
+    }
+  }
+
+  const esFestivo = esFestivoOverride !== undefined ? esFestivoOverride : (fecha ? COLOMBIAN_HOLIDAYS.has(fecha) : false);
   const esDomOFestivo = esDomingo || esFestivo;
 
-  const startMin = timeStringToMinutes(horaInicio);
-  let endMin = timeStringToMinutes(horaFin);
+  const startMin = timeStringToMinutes(horaInicio || '06:00');
+  let endMin = timeStringToMinutes(horaFin || '14:00');
 
   // If end time is before or equal to start time, the shift ended the next day
   if (endMin <= startMin) {
     endMin += 1440;
   }
 
-  const duracionMinutos = endMin - startMin;
+  const duracionMinutos = Math.max(0, endMin - startMin);
   const totalHoras = Math.round((duracionMinutos / 60) * 10) / 10;
 
-  const maxOrdinariasMinutos = maxOrdinarias * 60;
+  const maxOrdinariasMinutos = (maxOrdinarias || 8) * 60;
 
   let ordinariasMinutos = 0;
   let extraDiurnaMinutos = 0;
@@ -114,10 +121,13 @@ export function calcularDesgloseHoras(params: {
     }
   }
 
-  const round1Dec = (val: number) => Math.round((val / 60) * 10) / 10;
+  const round1Dec = (val: number) => {
+    const res = Math.round((val / 60) * 10) / 10;
+    return isNaN(res) ? 0 : res;
+  };
 
   return {
-    totalHoras,
+    totalHoras: isNaN(totalHoras) ? 0 : totalHoras,
     ordinarias: round1Dec(ordinariasMinutos),
     extraDiurna: round1Dec(extraDiurnaMinutos),
     extraNocturna: round1Dec(extraNocturnaMinutos),

@@ -75,56 +75,76 @@ export const DEFAULT_BASE_PATTERN_MAP: Record<string, number> = {
   '3': 0, // Wilson
 };
 
+// Helper function to safely parse dates without throwing or returning NaN
+function parseSafeDate(dateStr?: string): { date: Date; valid: boolean } {
+  if (!dateStr || typeof dateStr !== 'string' || dateStr.trim().length < 8) {
+    return { date: new Date(), valid: false };
+  }
+  const parts = dateStr.trim().split('-').map(Number);
+  if (parts.length < 3 || isNaN(parts[0]) || isNaN(parts[1]) || isNaN(parts[2])) {
+    return { date: new Date(), valid: false };
+  }
+  const d = new Date(parts[0], parts[1] - 1, parts[2]);
+  if (isNaN(d.getTime())) {
+    return { date: new Date(), valid: false };
+  }
+  return { date: d, valid: true };
+}
+
 /**
  * Calculates the Sunday date string (YYYY-MM-DD) for any given date
  */
-export function getSundayOfWeek(dateStr: string): string {
-  const parts = dateStr.split('-').map(Number);
-  const d = new Date(parts[0], parts[1] - 1, parts[2]);
+export function getSundayOfWeek(dateStr?: string): string {
+  const { date: d } = parseSafeDate(dateStr);
   const dayOfWeek = d.getDay(); // 0 is Sunday
-  d.setDate(d.getDate() - dayOfWeek);
+  const safeDayOfWeek = isNaN(dayOfWeek) ? 0 : dayOfWeek;
+  const sunday = new Date(d);
+  sunday.setDate(sunday.getDate() - safeDayOfWeek);
   
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
+  const y = sunday.getFullYear();
+  const m = String(sunday.getMonth() + 1).padStart(2, '0');
+  const day = String(sunday.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
 
 /**
  * Calculates the pattern index for an operario on a given date based on weekly rotation
  */
-export function getOperarioPatternIndex(operarioId: string, dateStr: string): number {
+export function getOperarioPatternIndex(operarioId: string, dateStr?: string): number {
   const sundayStr = getSundayOfWeek(dateStr);
-  const sundayParts = sundayStr.split('-').map(Number);
-  const targetSunday = new Date(sundayParts[0], sundayParts[1] - 1, sundayParts[2]);
+  const { date: targetSunday } = parseSafeDate(sundayStr);
   
   const diffMs = targetSunday.getTime() - BASE_SUNDAY.getTime();
-  const diffWeeks = Math.round(diffMs / (7 * 24 * 60 * 60 * 1000));
+  let diffWeeks = Math.round(diffMs / (7 * 24 * 60 * 60 * 1000));
+  if (isNaN(diffWeeks)) diffWeeks = 0;
   
-  const baseIndex = DEFAULT_BASE_PATTERN_MAP[operarioId] ?? (Number(operarioId) % 3);
+  const opNum = Number(operarioId);
+  const baseIndex = DEFAULT_BASE_PATTERN_MAP[operarioId] ?? (!isNaN(opNum) ? (opNum % 3) : 0);
   // Cyclical rotation every week: (baseIndex + diffWeeks) mod 3
   const patternIndex = ((baseIndex + diffWeeks) % 3 + 3) % 3;
-  return patternIndex;
+  return isNaN(patternIndex) ? 0 : patternIndex;
 }
 
 /**
  * Returns the scheduled shift details for a specific operario on a given date
  */
-export function getProgramacionOperario(operarioId: string, dateStr: string): ShiftInfo {
-  const parts = dateStr.split('-').map(Number);
-  const d = new Date(parts[0], parts[1] - 1, parts[2]);
-  const dayIndex = d.getDay(); // 0 = Domingo, 1 = Lunes, ..., 6 = Sábado
-  const nombreDia = DIA_NOMBRES[dayIndex];
+export function getProgramacionOperario(operarioId: string, dateStr?: string): ShiftInfo {
+  const { date: d } = parseSafeDate(dateStr);
+  const rawDayIndex = d.getDay();
+  const dayIndex = isNaN(rawDayIndex) ? 0 : rawDayIndex;
+  const safeDayIndex = (dayIndex >= 0 && dayIndex <= 6) ? dayIndex : 0;
+  const nombreDia = DIA_NOMBRES[safeDayIndex] || 'Domingo';
   
-  const esDomingo = dayIndex === 0;
-  const esFestivo = COLOMBIAN_HOLIDAYS.has(dateStr);
+  const esDomingo = safeDayIndex === 0;
+  const esFestivo = dateStr ? COLOMBIAN_HOLIDAYS.has(dateStr) : false;
   
   const patternIndex = getOperarioPatternIndex(operarioId, dateStr);
-  const pattern = ROTATION_PATTERNS[patternIndex];
-  const daySchedule = pattern[dayIndex];
+  const safePatternIndex = (patternIndex >= 0 && patternIndex <= 2) ? patternIndex : 0;
+  const pattern = ROTATION_PATTERNS[safePatternIndex] || ROTATION_PATTERNS[0];
+  const daySchedule = (pattern && pattern[safeDayIndex]) || { turno: 'Turno Día', horario: '06:00–14:00', maquina: 'MIXTO' };
   
-  const turno = daySchedule.turno;
-  const horario = daySchedule.horario;
+  const turno = daySchedule.turno || 'Turno Día';
+  const horario = daySchedule.horario || '06:00–14:00';
   const maquina = daySchedule.maquina || '';
   const esDescanso = turno === 'Descanso';
   
@@ -160,8 +180,8 @@ export function getProgramacionOperario(operarioId: string, dateStr: string): Sh
  * Returns the full 7-day schedule matrix for a specific week starting on Sunday
  */
 export function getWeekScheduleMatrix(sundayDateStr: string, operarios: Operario[]) {
-  const sundayParts = sundayDateStr.split('-').map(Number);
-  const baseDate = new Date(sundayParts[0], sundayParts[1] - 1, sundayParts[2]);
+  const sundayStr = getSundayOfWeek(sundayDateStr);
+  const { date: baseDate } = parseSafeDate(sundayStr);
   
   const days = [];
   for (let i = 0; i < 7; i++) {
@@ -171,20 +191,22 @@ export function getWeekScheduleMatrix(sundayDateStr: string, operarios: Operario
     days.push({
       dateStr,
       dayIndex: i,
-      name: DIA_NOMBRES[i],
-      formatted: `${DIA_NOMBRES[i].toLowerCase()}, ${d.getDate()} de ${d.toLocaleString('es-ES', { month: 'long' })} de ${d.getFullYear()}`,
+      name: DIA_NOMBRES[i] || '',
+      formatted: `${(DIA_NOMBRES[i] || '').toLowerCase()}, ${d.getDate()} de ${d.toLocaleString('es-ES', { month: 'long' })} de ${d.getFullYear()}`,
       isHoliday: COLOMBIAN_HOLIDAYS.has(dateStr),
     });
   }
   
-  const rows = operarios.map(op => {
-    const patternIdx = getOperarioPatternIndex(op.id, sundayDateStr);
-    const pattern = ROTATION_PATTERNS[patternIdx];
+  const safeOperarios = operarios || [];
+  const rows = safeOperarios.map(op => {
+    const patternIdx = getOperarioPatternIndex(op.id, sundayStr);
+    const safePatternIdx = (patternIdx >= 0 && patternIdx <= 2) ? patternIdx : 0;
+    const pattern = ROTATION_PATTERNS[safePatternIdx] || ROTATION_PATTERNS[0];
     return {
       operario: op,
-      patternIndex: patternIdx,
+      patternIndex: safePatternIdx,
       shifts: days.map((day, idx) => ({
-        ...pattern[idx],
+        ...(pattern[idx] || { turno: 'Turno Día', horario: '06:00–14:00', maquina: 'MIXTO' }),
         dateStr: day.dateStr,
         isSunday: idx === 0,
         isHoliday: day.isHoliday,

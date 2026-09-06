@@ -42,33 +42,48 @@ const Dashboard: React.FC<Props> = ({ operarios, restDays, extraDays, config }) 
 
           // Count unique worked rest dates in current month
           const workedRestDates = new Set<string>();
-          restDays.forEach((rd) => {
-            if (rd.operarioId === op.id && rd.fecha.startsWith(currentMonth) && rd.trabajo) {
+          (restDays || []).forEach((rd) => {
+            if (rd && rd.operarioId === op.id && rd.fecha && rd.fecha.startsWith(currentMonth) && rd.trabajo) {
               workedRestDates.add(rd.fecha);
             }
           });
-          extraDays.forEach((ed) => {
-            if (ed.operarioId === op.id && ed.fecha.startsWith(currentMonth) && ed.esDescansoTrabajado) {
+          (extraDays || []).forEach((ed) => {
+            if (ed && ed.operarioId === op.id && ed.fecha && ed.fecha.startsWith(currentMonth) && ed.esDescansoTrabajado) {
               workedRestDates.add(ed.fecha);
             }
           });
           const restCount = workedRestDates.size;
+          const maxRestAllowed = Number(config?.topeDiasDescanso || 4);
 
-          const extraMonth = extraDays
-            .filter((ed) => ed.operarioId === op.id && ed.fecha.startsWith(currentMonth))
-            .reduce((s, ed) => s + (ed.extraDiurna || 0) + (ed.extraNocturna || 0) + (ed.extraDominical || 0), 0);
+          const extraMonth = (extraDays || [])
+            .filter((ed) => ed && ed.operarioId === op.id && ed.fecha && ed.fecha.startsWith(currentMonth))
+            .reduce((s, ed) => {
+              const d = Number(ed.extraDiurna || 0);
+              const n = Number(ed.extraNocturna || 0);
+              const dom = Number(ed.extraDominical || 0);
+              return s + (isNaN(d) ? 0 : d) + (isNaN(n) ? 0 : n) + (isNaN(dom) ? 0 : dom);
+            }, 0);
 
-          const extraDiurnaMonth = extraDays
-            .filter((ed) => ed.operarioId === op.id && ed.fecha.startsWith(currentMonth))
-            .reduce((s, ed) => s + (ed.extraDiurna || 0), 0);
+          const extraDiurnaMonth = (extraDays || [])
+            .filter((ed) => ed && ed.operarioId === op.id && ed.fecha && ed.fecha.startsWith(currentMonth))
+            .reduce((s, ed) => {
+              const d = Number(ed.extraDiurna || 0);
+              return s + (isNaN(d) ? 0 : d);
+            }, 0);
 
-          const extraNocturnaMonth = extraDays
-            .filter((ed) => ed.operarioId === op.id && ed.fecha.startsWith(currentMonth))
-            .reduce((s, ed) => s + (ed.extraNocturna || 0), 0);
+          const extraNocturnaMonth = (extraDays || [])
+            .filter((ed) => ed && ed.operarioId === op.id && ed.fecha && ed.fecha.startsWith(currentMonth))
+            .reduce((s, ed) => {
+              const n = Number(ed.extraNocturna || 0);
+              return s + (isNaN(n) ? 0 : n);
+            }, 0);
 
-          const extraDominicalMonth = extraDays
-            .filter((ed) => ed.operarioId === op.id && ed.fecha.startsWith(currentMonth))
-            .reduce((s, ed) => s + (ed.extraDominical || 0), 0);
+          const extraDominicalMonth = (extraDays || [])
+            .filter((ed) => ed && ed.operarioId === op.id && ed.fecha && ed.fecha.startsWith(currentMonth))
+            .reduce((s, ed) => {
+              const dom = Number(ed.extraDominical || 0);
+              return s + (isNaN(dom) ? 0 : dom);
+            }, 0);
 
           let alertBorder = 'border-gray-200';
           let alertBadge = 'bg-green-100 text-green-800';
@@ -82,7 +97,7 @@ const Dashboard: React.FC<Props> = ({ operarios, restDays, extraDays, config }) 
             alertBorder = 'border-orange-400';
             alertBadge = 'bg-orange-100 text-orange-800';
             alertText = 'Alerta: Queda 1 día disponible';
-          } else if (restCount >= config.topeDiasDescanso) {
+          } else if (restCount >= maxRestAllowed) {
             alertBorder = 'border-red-500';
             alertBadge = 'bg-red-100 text-red-800 font-bold';
             alertText = 'Tope mensual alcanzado';

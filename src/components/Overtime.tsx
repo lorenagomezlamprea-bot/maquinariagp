@@ -61,14 +61,17 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
 
   // Unified records list merging extraDays and legacy restDays so no past rest-day record is invisible
   const unifiedRecords: RegistroExtra[] = useMemo(() => {
-    const list: RegistroExtra[] = [...extraDays];
-    const existingIds = new Set(extraDays.map((ed) => ed.id));
-    const existingKeys = new Set(extraDays.map((ed) => `${ed.operarioId}_${ed.fecha}`));
+    const list: RegistroExtra[] = [...(extraDays || [])];
+    const existingIds = new Set((extraDays || []).map((ed) => ed.id));
+    const existingKeys = new Set((extraDays || []).map((ed) => `${ed.operarioId}_${ed.fecha}`));
 
     // Include any restDays records that aren't already represented in extraDays
-    restDays.forEach((rd) => {
+    (restDays || []).forEach((rd) => {
+      if (!rd || !rd.fecha) return;
       const key = `${rd.operarioId}_${rd.fecha}`;
       if (rd.trabajo && !existingIds.has(rd.id) && !existingKeys.has(key)) {
+        const horasNum = Number(rd.horas || 8);
+        const safeHoras = isNaN(horasNum) ? 8 : horasNum;
         list.push({
           id: rd.id,
           operarioId: rd.operarioId,
@@ -80,8 +83,8 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
           ordinarias: 0,
           extraDiurna: 0,
           extraNocturna: 0,
-          extraDominical: rd.horas || 8,
-          totalHoras: rd.horas || 8,
+          extraDominical: safeHoras,
+          totalHoras: safeHoras,
           esFestivo: false,
           esDescansoTrabajado: true,
           tipoDia: rd.tipoDia,
@@ -90,21 +93,26 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
       }
     });
 
-    return list.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+    return list.sort((a, b) => {
+      const tA = a.fecha ? new Date(a.fecha).getTime() : 0;
+      const tB = b.fecha ? new Date(b.fecha).getTime() : 0;
+      return (isNaN(tB) ? 0 : tB) - (isNaN(tA) ? 0 : tA);
+    });
   }, [extraDays, restDays]);
 
   // Helper to count worked rest days in a given month without double counting
   const getMonthlyRestDaysCount = (operarioId: string, monthStr: string) => {
+    if (!monthStr || monthStr.length < 7) return 0;
     const dates = new Set<string>();
 
-    restDays.forEach((rd) => {
-      if (rd.operarioId === operarioId && rd.fecha.startsWith(monthStr) && rd.trabajo) {
+    (restDays || []).forEach((rd) => {
+      if (rd && rd.operarioId === operarioId && rd.fecha && typeof rd.fecha === 'string' && rd.fecha.startsWith(monthStr) && rd.trabajo) {
         dates.add(rd.fecha);
       }
     });
 
-    extraDays.forEach((ed) => {
-      if (ed.operarioId === operarioId && ed.fecha.startsWith(monthStr) && ed.esDescansoTrabajado) {
+    (extraDays || []).forEach((ed) => {
+      if (ed && ed.operarioId === operarioId && ed.fecha && typeof ed.fecha === 'string' && ed.fecha.startsWith(monthStr) && ed.esDescansoTrabajado) {
         dates.add(ed.fecha);
       }
     });
@@ -112,7 +120,15 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
     return dates.size;
   };
 
-  // Query programmed shift whenever operario or date changes
+  // Check if current date input is a well-formed, valid date
+  const isFechaValida = Boolean(
+    selectedFecha &&
+    typeof selectedFecha === 'string' &&
+    selectedFecha.trim().length === 10 &&
+    !isNaN(new Date(selectedFecha).getTime())
+  );
+
+  // Query programmed shift whenever operario or date changes (safe fallback inside schedule.ts)
   const shiftInfo: ShiftInfo = useMemo(() => {
     return getProgramacionOperario(selectedOperarioId, selectedFecha);
   }, [selectedOperarioId, selectedFecha]);
@@ -129,7 +145,7 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
   }, [selectedOperarioId, selectedFecha, shiftInfo]);
 
   // Rest day counter for the selected operario & month of selected date
-  const selectedMonthOfDate = selectedFecha.slice(0, 7);
+  const selectedMonthOfDate = selectedFecha && selectedFecha.length >= 7 ? selectedFecha.slice(0, 7) : currentMonthStr;
   const currentOperarioRestCount = useMemo(() => {
     return getMonthlyRestDaysCount(selectedOperarioId, selectedMonthOfDate);
   }, [selectedOperarioId, selectedMonthOfDate, restDays, extraDays]);
@@ -139,7 +155,8 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
     ? currentOperarioRestCount + 1
     : currentOperarioRestCount;
 
-  const isExceedingMonthlyLimit = esDescansoTrabajado && willBeRestDayCount > config.topeDiasDescanso;
+  const maxTopeDescanso = Number(config?.topeDiasDescanso || 4);
+  const isExceedingMonthlyLimit = esDescansoTrabajado && willBeRestDayCount > maxTopeDescanso;
 
   // Automatically calculate breakdown of hours
   const calculatedBreakdown: DesgloseHorasResult = useMemo(() => {
@@ -154,46 +171,58 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
   }, [selectedFecha, horaInicio, horaFin, esDescansoTrabajado, esFestivoManual, shiftInfo.esFestivo]);
 
   // Use either calculated or manually overridden values
-  const finalOrdinarias = manualOverride ? customOrdinarias : calculatedBreakdown.ordinarias;
-  const finalExtraDiurna = manualOverride ? customExtraDiurna : calculatedBreakdown.extraDiurna;
-  const finalExtraNocturna = manualOverride ? customExtraNocturna : calculatedBreakdown.extraNocturna;
-  const finalExtraDominical = manualOverride ? customExtraDominical : calculatedBreakdown.extraDominical;
+  const finalOrdinarias = manualOverride ? Number(customOrdinarias || 0) : calculatedBreakdown.ordinarias;
+  const finalExtraDiurna = manualOverride ? Number(customExtraDiurna || 0) : calculatedBreakdown.extraDiurna;
+  const finalExtraNocturna = manualOverride ? Number(customExtraNocturna || 0) : calculatedBreakdown.extraNocturna;
+  const finalExtraDominical = manualOverride ? Number(customExtraDominical || 0) : calculatedBreakdown.extraDominical;
   const totalHorasCalculadas = calculatedBreakdown.totalHoras;
   const totalHorasExtras = finalExtraDiurna + finalExtraNocturna + finalExtraDominical;
 
   // Daily and weekly compliance check
-  const isDailyOverLimit = totalHorasExtras > config.topeHorasExtraDiarias;
+  const isDailyOverLimit = totalHorasExtras > Number(config?.topeHorasExtraDiarias || 2);
 
   const currentOperarioWeeklyOT = useMemo(() => {
+    if (!isFechaValida) return 0;
     const currentWeekSunday = getSundayOfWeek(selectedFecha);
     const sundayTime = new Date(currentWeekSunday).getTime();
+    if (isNaN(sundayTime)) return 0;
     const saturdayTime = sundayTime + 6 * 24 * 60 * 60 * 1000;
 
     return unifiedRecords
       .filter((ed) => {
-        if (ed.operarioId !== selectedOperarioId) return false;
+        if (!ed || ed.operarioId !== selectedOperarioId || !ed.fecha) return false;
         const edTime = new Date(ed.fecha).getTime();
-        return edTime >= sundayTime && edTime <= saturdayTime;
+        return !isNaN(edTime) && edTime >= sundayTime && edTime <= saturdayTime;
       })
-      .reduce((sum, ed) => sum + ed.extraDiurna + ed.extraNocturna + ed.extraDominical, 0);
-  }, [unifiedRecords, selectedOperarioId, selectedFecha]);
+      .reduce((sum, ed) => {
+        const d = Number(ed.extraDiurna || 0);
+        const n = Number(ed.extraNocturna || 0);
+        const dom = Number(ed.extraDominical || 0);
+        return sum + (isNaN(d) ? 0 : d) + (isNaN(n) ? 0 : n) + (isNaN(dom) ? 0 : dom);
+      }, 0);
+  }, [unifiedRecords, selectedOperarioId, selectedFecha, isFechaValida]);
 
-  const isWeeklyOverLimit = currentOperarioWeeklyOT + totalHorasExtras > config.topeHorasExtraSemanales;
+  const isWeeklyOverLimit = currentOperarioWeeklyOT + totalHorasExtras > Number(config?.topeHorasExtraSemanales || 12);
 
   const executeSave = async (overrideAuth = false) => {
+    if (!isFechaValida) {
+      alert('Por favor ingrese o seleccione una fecha de trabajo válida (formato AAAA-MM-DD) antes de guardar.');
+      return;
+    }
+
     const newRecord: RegistroExtra = {
       id: Date.now().toString(),
       operarioId: selectedOperarioId,
       fecha: selectedFecha,
-      horaInicio,
-      horaFin,
+      horaInicio: horaInicio || '06:00',
+      horaFin: horaFin || '14:00',
       turnoProgramado: `${shiftInfo.turno}${shiftInfo.maquina ? ` (${shiftInfo.maquina})` : ''}`,
       maquina: shiftInfo.maquina,
-      ordinarias: finalOrdinarias,
-      extraDiurna: finalExtraDiurna,
-      extraNocturna: finalExtraNocturna,
-      extraDominical: finalExtraDominical,
-      totalHoras: totalHorasCalculadas,
+      ordinarias: Number(finalOrdinarias || 0),
+      extraDiurna: Number(finalExtraDiurna || 0),
+      extraNocturna: Number(finalExtraNocturna || 0),
+      extraDominical: Number(finalExtraDominical || 0),
+      totalHoras: Number(totalHorasCalculadas || 0),
       esFestivo: esFestivoManual || shiftInfo.esFestivo,
       esDescansoTrabajado,
       tipoDia,
@@ -214,6 +243,11 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!isFechaValida) {
+      alert('Por favor ingrese o seleccione una fecha de trabajo válida (formato AAAA-MM-DD) antes de guardar.');
+      return;
+    }
 
     // Block if 5th day or more without explicit authorization
     if (isExceedingMonthlyLimit && !autorizacionGestionHumana) {
@@ -250,20 +284,35 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
   };
 
   const getFilteredPeriodOT = (operarioId: string, monthStr: string) => {
+    if (!monthStr) return 0;
     return unifiedRecords
-      .filter((ed) => ed.operarioId === operarioId && ed.fecha.startsWith(monthStr))
-      .reduce((sum, ed) => sum + (ed.extraDiurna || 0) + (ed.extraNocturna || 0) + (ed.extraDominical || 0), 0);
+      .filter((ed) => ed && ed.operarioId === operarioId && ed.fecha && ed.fecha.startsWith(monthStr))
+      .reduce((sum, ed) => {
+        const d = Number(ed.extraDiurna || 0);
+        const n = Number(ed.extraNocturna || 0);
+        const dom = Number(ed.extraDominical || 0);
+        return sum + (isNaN(d) ? 0 : d) + (isNaN(n) ? 0 : n) + (isNaN(dom) ? 0 : dom);
+      }, 0);
   };
 
   const calculateLiquidacionMonth = (operarioId: string, monthStr: string) => {
-    const records = unifiedRecords.filter((ed) => ed.operarioId === operarioId && ed.fecha.startsWith(monthStr));
-    const baseHourlyRate = (config.salariosBase[operarioId] || 2000000) / 168; // 168h base mensual
+    if (!monthStr) return 0;
+    const records = unifiedRecords.filter((ed) => ed && ed.operarioId === operarioId && ed.fecha && ed.fecha.startsWith(monthStr));
+    const salario = Number(config?.salariosBase?.[operarioId] ?? 2000000);
+    const baseHourlyRate = (isNaN(salario) ? 2000000 : salario) / 168; // 168h base mensual
+    const edPorc = Number(config?.extraDiurnaPorc || 25);
+    const enPorc = Number(config?.extraNocturnaPorc || 75);
+    const edomPorc = Number(config?.extraDominicalPorc || 75);
+
     return records.reduce((sum, ed) => {
+      const d = Number(ed.extraDiurna || 0);
+      const n = Number(ed.extraNocturna || 0);
+      const dom = Number(ed.extraDominical || 0);
       return (
         sum +
-        (ed.extraDiurna || 0) * baseHourlyRate * (1 + config.extraDiurnaPorc / 100) +
-        (ed.extraNocturna || 0) * baseHourlyRate * (1 + config.extraNocturnaPorc / 100) +
-        (ed.extraDominical || 0) * baseHourlyRate * (1 + config.extraDominicalPorc / 100)
+        (isNaN(d) ? 0 : d) * baseHourlyRate * (1 + edPorc / 100) +
+        (isNaN(n) ? 0 : n) * baseHourlyRate * (1 + enPorc / 100) +
+        (isNaN(dom) ? 0 : dom) * baseHourlyRate * (1 + edomPorc / 100)
       );
     }, 0);
   };
@@ -274,7 +323,8 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
   }, [scheduleWeekSunday, operarios]);
 
   const changeWeek = (direction: number) => {
-    const currentParts = scheduleWeekSunday.split('-').map(Number);
+    const currentSunday = getSundayOfWeek(scheduleWeekSunday);
+    const currentParts = currentSunday.split('-').map(Number);
     const d = new Date(currentParts[0], currentParts[1] - 1, currentParts[2]);
     d.setDate(d.getDate() + direction * 7);
     const newSunday = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -296,22 +346,36 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
     const seenKeys = new Set<string>();
 
     unifiedRecords.forEach((ed) => {
-      if (ed.fecha.startsWith(historyMonth) && ed.esDescansoTrabajado) {
+      if (ed && ed.fecha && ed.fecha.startsWith(historyMonth) && ed.esDescansoTrabajado) {
         const key = `${ed.operarioId}_${ed.fecha}`;
-        seenKeys.add(key);
-        combined.push({
-          id: ed.id,
-          operarioId: ed.operarioId,
-          fecha: ed.fecha,
-          tipoDia: ed.tipoDia || 'Descanso entre semana',
-          horas: ed.totalHoras || (ed.ordinarias + ed.extraDiurna + ed.extraNocturna + ed.extraDominical) || 8,
-          autorizado: ed.autorizacionGestionHumana,
-          observaciones: ed.observaciones,
-        });
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
+          const d = Number(ed.extraDiurna || 0);
+          const n = Number(ed.extraNocturna || 0);
+          const dom = Number(ed.extraDominical || 0);
+          const ord = Number(ed.ordinarias || 0);
+          const tot = Number(ed.totalHoras || 0);
+          const calculatedTot = (isNaN(ord) ? 0 : ord) + (isNaN(d) ? 0 : d) + (isNaN(n) ? 0 : n) + (isNaN(dom) ? 0 : dom);
+          const finalHours = tot > 0 ? tot : (calculatedTot > 0 ? calculatedTot : 8);
+
+          combined.push({
+            id: ed.id,
+            operarioId: ed.operarioId,
+            fecha: ed.fecha,
+            tipoDia: ed.tipoDia || 'Descanso entre semana',
+            horas: isNaN(finalHours) ? 8 : finalHours,
+            autorizado: ed.autorizacionGestionHumana,
+            observaciones: ed.observaciones,
+          });
+        }
       }
     });
 
-    return combined.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+    return combined.sort((a, b) => {
+      const tA = a.fecha ? new Date(a.fecha).getTime() : 0;
+      const tB = b.fecha ? new Date(b.fecha).getTime() : 0;
+      return (isNaN(tB) ? 0 : tB) - (isNaN(tA) ? 0 : tA);
+    });
   }, [unifiedRecords, historyMonth]);
 
   return (
@@ -424,30 +488,41 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
 
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">
-                    Fecha de Trabajo
+                    Fecha de Trabajo <span className="text-red-500">*</span>
                   </label>
                   <input
                     id="input-fecha"
                     type="date"
+                    required
                     value={selectedFecha}
                     onChange={(e) => {
                       setSelectedFecha(e.target.value);
                       setManualOverride(false);
                     }}
-                    className="w-full border border-gray-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium"
+                    className={`w-full border rounded-lg p-2.5 focus:ring-2 font-medium ${
+                      !isFechaValida
+                        ? 'border-red-400 bg-red-50/40 text-red-900 focus:ring-red-500 focus:border-red-500'
+                        : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
+                    }`}
                   />
-                  <div className="flex items-center gap-2 mt-1.5 text-xs text-gray-500">
-                    <span className="capitalize font-semibold text-gray-700">{shiftInfo.nombreDia}</span>
-                    {shiftInfo.esDomingo && (
-                      <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold">Domingo</span>
-                    )}
-                    {shiftInfo.esFestivo && (
-                      <span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-bold">Festivo Nacional</span>
-                    )}
-                    {shiftInfo.esDescanso && (
-                      <span className="bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded font-bold">Descanso Programado</span>
-                    )}
-                  </div>
+                  {isFechaValida ? (
+                    <div className="flex items-center gap-2 mt-1.5 text-xs text-gray-500">
+                      <span className="capitalize font-semibold text-gray-700">{shiftInfo.nombreDia}</span>
+                      {shiftInfo.esDomingo && (
+                        <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold">Domingo</span>
+                      )}
+                      {shiftInfo.esFestivo && (
+                        <span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-bold">Festivo Nacional</span>
+                      )}
+                      {shiftInfo.esDescanso && (
+                        <span className="bg-yellow-100 text-yellow-800 px-1.5 py-0.5 rounded font-bold">Descanso Programado</span>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-red-600 font-semibold mt-1.5 flex items-center gap-1">
+                      <span>* Ingrese una fecha válida (AAAA-MM-DD) para habilitar el guardado.</span>
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -802,7 +877,13 @@ const Overtime: React.FC<Props> = ({ operarios, extraDays, restDays = [], config
                   <button
                     id="btn-guardar-registro"
                     type="submit"
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-4 rounded-lg shadow-sm transition flex items-center justify-center gap-2"
+                    disabled={!isFechaValida}
+                    className={`w-full font-bold py-2.5 px-4 rounded-lg shadow-sm transition flex items-center justify-center gap-2 ${
+                      !isFechaValida
+                        ? 'bg-gray-400 cursor-not-allowed text-gray-200 opacity-80'
+                        : 'bg-blue-600 hover:bg-blue-700 text-white'
+                    }`}
+                    title={!isFechaValida ? 'Seleccione una fecha válida para guardar' : 'Guardar registro de jornada'}
                   >
                     <CheckCircle2 size={18} />
                     Guardar Registro
